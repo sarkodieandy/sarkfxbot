@@ -1,0 +1,58 @@
+name: GoldFlow CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: goldflow_test
+          POSTGRES_USER: goldflow
+          POSTGRES_PASSWORD: goldflow-test-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U goldflow -d goldflow_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      APP_ENV: test
+      TRADING_ENV: demo
+      TRADING_MODE: SIGNAL
+      BROKER_TYPE: mock
+      DATABASE_URL: postgresql+psycopg://goldflow:goldflow-test-only@localhost:5432/goldflow_test
+      REDIS_URL: redis://localhost:6379/0
+      JWT_SECRET: ci-only-not-a-production-secret-change-me
+      UV_CACHE_DIR: /tmp/goldflow-uv-cache
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --extra dev --locked
+      - run: .venv/bin/alembic upgrade head
+      - run: .venv/bin/ruff check .
+      - run: .venv/bin/black --check .
+      - run: .venv/bin/mypy app scripts
+      - run: .venv/bin/pytest --cov=app --cov-report=xml --cov-fail-under=80
+      - run: .venv/bin/python scripts/run_backtest.py --sample --output reports/ci-sample

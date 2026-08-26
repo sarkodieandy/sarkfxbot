@@ -1,0 +1,100 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "goldflow-trading-engine"
+version = "1.0.0"
+description = "Risk-first, broker-agnostic XAUUSD trading platform"
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+license = { text = "Proprietary" }
+authors = [{ name = "GoldFlow Engineering" }]
+dependencies = [
+  "alembic>=1.14,<2",
+  "apscheduler>=3.11,<4",
+  "fastapi>=0.115,<1",
+  "httpx>=0.28,<1",
+  "prometheus-client>=0.21,<1",
+  "psycopg[binary]>=3.2,<4",
+  "pydantic>=2.10,<3",
+  "pydantic-settings>=2.7,<3",
+  "PyJWT[crypto]>=2.10,<3",
+  "redis>=5.2,<7",
+  "sentry-sdk[fastapi]>=2.20,<3",
+  "SQLAlchemy>=2.0.36,<3",
+  "structlog>=24.4,<26",
+  "uvicorn[standard]>=0.34,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "black>=24.10,<27",
+  "mypy>=1.14,<2",
+  "pytest>=8.3,<10",
+  "pytest-asyncio>=0.25,<2",
+  "pytest-cov>=6,<8",
+  "ruff>=0.9,<1",
+]
+mt5 = ["MetaTrader5>=5.0; platform_system == 'Windows'"]
+
+[project.scripts]
+goldflow-api = "app.main:run"
+goldflow-worker = "app.workers.runner:run"
+goldflow-backtest = "scripts.run_backtest:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app", "scripts"]
+
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["alembic/versions", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC", "S", "SIM", "RUF"]
+ignore = [
+  "S101",  # assertions are expected in tests
+  "S105",  # test/default token names are caught by secret scanning instead
+  "S106",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "S311"]
+"scripts/**/*.py" = ["S603"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+plugins = ["pydantic.mypy", "sqlalchemy.ext.mypy.plugin"]
+exclude = ["alembic/versions"]
+
+[[tool.mypy.overrides]]
+module = ["MetaTrader5", "apscheduler.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-ra --strict-markers --strict-config"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+  "integration: exercises multiple application layers",
+  "postgres: requires a PostgreSQL service",
+  "mt5: requires a local Windows MetaTrader 5 terminal",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["app"]
+omit = ["app/brokers/mt5.py"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+fail_under = 80

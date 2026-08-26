@@ -1,0 +1,99 @@
+name: goldflow
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: goldflow
+      POSTGRES_USER: goldflow
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-demo-only}
+    volumes:
+      - goldflow-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U goldflow -d goldflow"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [backend]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-local-demo-only}"]
+    volumes:
+      - goldflow-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-local-demo-only}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [backend]
+
+  migrate:
+    build: .
+    restart: "no"
+    environment:
+      APP_ENV: development
+      TRADING_ENV: demo
+      TRADING_MODE: SIGNAL
+      DATABASE_URL: postgresql+psycopg://goldflow:${POSTGRES_PASSWORD:-local-demo-only}@postgres:5432/goldflow
+      REDIS_URL: redis://:${REDIS_PASSWORD:-local-demo-only}@redis:6379/0
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [backend]
+
+  api:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql+psycopg://goldflow:${POSTGRES_PASSWORD:-local-demo-only}@postgres:5432/goldflow
+      REDIS_URL: redis://:${REDIS_PASSWORD:-local-demo-only}@redis:6379/0
+    ports:
+      - "8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    networks: [backend]
+
+  worker:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql+psycopg://goldflow:${POSTGRES_PASSWORD:-local-demo-only}@postgres:5432/goldflow
+      REDIS_URL: redis://:${REDIS_PASSWORD:-local-demo-only}@redis:6379/0
+    command: ["python", "-m", "app.workers.runner"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    networks: [backend]
+
+volumes:
+  goldflow-postgres:
+  goldflow-redis:
+
+networks:
+  backend:
+    driver: bridge
